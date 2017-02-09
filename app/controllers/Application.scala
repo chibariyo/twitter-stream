@@ -1,15 +1,16 @@
 package controllers
 
-import play.api._
-import play.api.mvc._
-import play.api.libs.oauth.{ConsumerKey, OAuthCalculator, RequestToken}
-import play.api.Play.current
-
 import scala.concurrent.Future
-import play.api.libs.concurrent.Execution.Implicits._
-import play.api.libs.ws._
+import play.api._
 import play.api.libs.iteratee._
+import play.api.libs.json.JsObject
+import play.api.libs.oauth.{ConsumerKey, OAuthCalculator, RequestToken}
+import play.api.libs.ws.WS
 import play.api.Logger
+import play.api.mvc._
+import play.api.Play.current
+import play.extras.iteratees.{Encoding, JsonIteratees}
+import play.api.libs.concurrent.Execution.Implicits._
 
 class Application extends Controller {
 
@@ -19,21 +20,29 @@ class Application extends Controller {
 
   def tweets = Action.async {
 
-    val loggingIteratee = Iteratee.foreach[Array[Byte]] {
-      array => Logger.info(array.map(_.toChar).mkString)
-    }
+    credentials.map { case (consumerKey, requestToken) =>
+      val (iteratee, enumerator) = Concurrent.joined[Array[Byte]]
 
-    credentials.map {
-      case (consumerKey, requestToken) =>
-        WS.url("https://stream.twitter.com/1.1/statuses/filter.json")
-          .sign(OAuthCalculator(consumerKey, requestToken))
-          .withQueryString("track" -> "reactive")
-          .get {
-            response => Logger.info("Status: " + response.status)
-              loggingIteratee
-          }.map { _ =>
-          Ok("Stream closed")
-        }
+      val jsonStream: Enumerator[JsObject] =
+        enumerator &>
+          Encoding.decode() &>
+          Enumeratee.grouped(JsonIteratees.jsSimpleObject)
+
+      val loggingIteratee = Iteratee.foreach[JsObject] { value =>
+        Logger.info(value.toString)
+      }
+
+      jsonStream run loggingIteratee
+
+      WS.url("https://stream.twitter.com/1.1/statuses/filter.json")
+        .sign(OAuthCalculator(consumerKey, requestToken))
+        .withQueryString("track" -> "cat")
+        .get { response =>
+          Logger.info("Status: " + response.status)
+          iteratee
+        }.map { _ =>
+        Ok("Stream closed")
+      }
     } getOrElse {
       Future.successful {
         InternalServerError("Twitter credentials missing")
