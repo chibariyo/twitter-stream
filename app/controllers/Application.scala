@@ -1,16 +1,8 @@
 package controllers
 
-import scala.concurrent.Future
-import play.api._
-import play.api.libs.iteratee._
-import play.api.libs.json.{JsObject, JsValue}
-import play.api.libs.oauth.{ConsumerKey, OAuthCalculator, RequestToken}
-import play.api.libs.ws.WS
-import play.api.Logger
+import play.api.libs.json.JsValue
 import play.api.mvc._
 import play.api.Play.current
-import play.extras.iteratees.{Encoding, JsonIteratees}
-import play.api.libs.concurrent.Execution.Implicits._
 
 import actors.TwitterStreamer
 
@@ -24,45 +16,4 @@ class Application extends Controller {
     request => out => TwitterStreamer.props(out)
   }
 
-  def tweetsOld = Action.async {
-
-    credentials.map { case (consumerKey, requestToken) =>
-      val (iteratee, enumerator) = Concurrent.joined[Array[Byte]]
-
-      val jsonStream: Enumerator[JsObject] =
-        enumerator &>
-          Encoding.decode() &>
-          Enumeratee.grouped(JsonIteratees.jsSimpleObject)
-
-      val loggingIteratee = Iteratee.foreach[JsObject] { value =>
-        Logger.info(value.toString)
-      }
-
-      jsonStream run loggingIteratee
-
-      WS.url("https://stream.twitter.com/1.1/statuses/filter.json")
-        .sign(OAuthCalculator(consumerKey, requestToken))
-        .withQueryString("track" -> "cat")
-        .get { response =>
-          Logger.info("Status: " + response.status)
-          iteratee
-        }.map { _ =>
-        Ok("Stream closed")
-      }
-    } getOrElse {
-      Future.successful {
-        InternalServerError("Twitter credentials missing")
-      }
-    }
-  }
-
-  def credentials: Option[(ConsumerKey, RequestToken)] = for {
-    apiKey <- Play.configuration.getString("twitter.apiKey")
-    apiSecret <- Play.configuration.getString("twitter.apiSecret")
-    token <- Play.configuration.getString("twitter.token")
-    tokenSecret <- Play.configuration.getString("twitter.tokenSecret")
-  } yield (
-    ConsumerKey(apiKey, apiSecret),
-    RequestToken(token, tokenSecret)
-  )
 }
