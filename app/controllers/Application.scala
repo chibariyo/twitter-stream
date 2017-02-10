@@ -3,7 +3,7 @@ package controllers
 import scala.concurrent.Future
 import play.api._
 import play.api.libs.iteratee._
-import play.api.libs.json.JsObject
+import play.api.libs.json.{JsObject, JsValue}
 import play.api.libs.oauth.{ConsumerKey, OAuthCalculator, RequestToken}
 import play.api.libs.ws.WS
 import play.api.Logger
@@ -12,13 +12,19 @@ import play.api.Play.current
 import play.extras.iteratees.{Encoding, JsonIteratees}
 import play.api.libs.concurrent.Execution.Implicits._
 
+import actors.TwitterStreamer
+
 class Application extends Controller {
 
-  def index = Action {
-    Ok(views.html.index("Your new application is ready."))
+  def index = Action { implicit request =>
+    Ok(views.html.index("Tweets"))
   }
 
-  def tweets = Action.async {
+  def tweets = WebSocket.acceptWithActor[String, JsValue] {
+    request => out => TwitterStreamer.props(out)
+  }
+
+  def tweetsOld = Action.async {
 
     credentials.map { case (consumerKey, requestToken) =>
       val (iteratee, enumerator) = Concurrent.joined[Array[Byte]]
