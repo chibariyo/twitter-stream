@@ -16,4 +16,8 @@ class Application extends Controller {
     request => out => TwitterStreamer.props(out)
   }
 
+  def replicateFeed = Action { implicit request =>
+    Ok.feed(TwitterStreamer.subscribeNode)
+  }
+
 }
